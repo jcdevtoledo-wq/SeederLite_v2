@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeederLinux Lite - Login</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <style>
+        body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; }
+        article { width: 100%; max-width: 400px; }
+    </style>
+</head>
+<body>
+    <article>
+        <header>
+            <hgroup>
+                <h1>Login</h1>
+                <h2>Acesso restrito para gerentes</h2>
+            </hgroup>
+        </header>
+        <form action="/api/login.php" method="POST">
+            <label for="username">Usuário</label>
+            <input type="text" id="username" name="username" placeholder="Seu usuário" required>
+            <label for="password">Senha</label>
+            <input type="password" id="password" name="password" placeholder="Sua senha" required>
+            <button type="submit">Entrar</button>
+        </form>
+        <footer>
+            <a href="/">Voltar para a página inicial</a>
+        </footer>
+    </article>
+</body>
+</html>

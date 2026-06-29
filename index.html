@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeederLinux Lite - Administração</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <style>
+        :root { --primary: #007bff; }
+        body { padding: 20px; }
+        .grid-custom { display: grid; grid-template-columns: 250px 1fr; gap: 20px; }
+        .hidden { display: none; }
+        .scrollable { max-height: 600px; overflow-y: auto; }
+        nav ul li a[role="button"] { padding: 5px 15px; }
+    </style>
+</head>
+<body>
+    <nav class="container">
+        <ul>
+            <li><strong>SeederLinux Lite - Admin</strong></li>
+        </ul>
+        <ul>
+            <li>Olá, Gerente</li>
+            <li><a href="/logout" role="button" class="secondary">Sair</a></li>
+        </ul>
+    </nav>
+
+    <main class="container">
+        <div class="grid-custom">
+            <!-- Sidebar: Organizations -->
+            <aside>
+                <article>
+                    <header><strong>Organizações (OMs)</strong></header>
+                    <ul id="org-list"></ul>
+                    <footer>
+                        <button class="outline" onclick="showAddOrg()">+ Nova OM</button>
+                    </footer>
+                </article>
+            </aside>
+
+            <!-- Main Content: Details and Actions -->
+            <section id="details-section">
+                <article id="welcome-card">
+                    <h3>Painel Administrativo</h3>
+                    <p>Selecione uma Organização Militar à esquerda para gerenciar as variáveis de provisionamento.</p>
+                </article>
+
+                <div id="org-details" class="hidden">
+                    <article>
+                        <header>
+                            <h3 id="selected-org-name">Nome da OM</h3>
+                        </header>
+                        
+                        <div class="grid">
+                            <div class="scrollable">
+                                <h5>Configurações e Variáveis</h5>
+                                <form id="vars-form">
+                                    <div id="vars-container">
+                                        <!-- Dynamic variables list -->
+                                    </div>
+                                    <button type="submit">Salvar Variáveis</button>
+                                </form>
+                            </div>
+                            <div>
+                                <h5>Gerar Bundle de Provisionamento</h5>
+                                <p>Gera um script <code>.sh</code> pronto para execução na estação, com todas as variáveis acima substituídas.</p>
+                                <form id="bundle-form">
+                                    <fieldset id="scripts-list">
+                                        <label><input type="checkbox" checked disabled> core_domain.sh (AD)</label>
+                                        <label><input type="checkbox" checked disabled> core_branding.sh (Wallpaper)</label>
+                                        <label><input type="checkbox" checked disabled> core_inventory.sh (OCS)</label>
+                                    </fieldset>
+                                    <button type="button" onclick="generateBundle()">Gerar e Provisionar</button>
+                                </form>
+                                <div id="bundle-result" class="hidden">
+                                    <ins>Bundle gerado com sucesso!</ins><br><br>
+                                    <a id="download-link" href="#" target="_blank" role="button">Download do Script (.sh)</a>
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Modal for adding Org -->
+    <dialog id="modal-org">
+        <article>
+            <h3>Cadastrar Organização</h3>
+            <form id="form-org">
+                <input type="text" name="name" placeholder="Nome Completo (ex: COMARA)" required>
+                <input type="text" name="acronym" placeholder="Sigla (ex: COMARA)" required>
+                <input type="text" name="domain" placeholder="Domínio AD (ex: comara.intraer)">
+                <footer>
+                    <button type="button" class="secondary" onclick="document.getElementById('modal-org').close()">Cancelar</button>
+                    <button type="submit">Salvar</button>
+                </footer>
+            </form>
+        </article>
+    </dialog>
+
+    <script>
+        let currentOrgId = null;
+        const defaultVars = [
+            { name: 'DOMINIO', label: 'Domínio AD completo', placeholder: 'comara.intraer' },
+            { name: 'DOMINIO_NETBIOS', label: 'Nome NetBIOS do domínio', placeholder: 'COMARA' },
+            { name: 'DC_IP', label: 'IP do Controlador de Domínio', placeholder: '10.108.64.51' },
+            { name: 'DNS_INTERNET', label: 'DNS para internet (fallback)', placeholder: '10.108.64.27' },
+            { name: 'BASE_URL', label: 'URL base do repositório', placeholder: 'https://softwarelivre.comara.intraer' },
+            { name: 'OCS_SERVER', label: 'Servidor OCS Inventory', placeholder: 'http://ocs.comara.intraer/ocsinventory' },
+            { name: 'OCS_TAG', label: 'Tag OCS da organização', placeholder: 'GAPBE-COMARA' },
+            { name: 'PRINT_SERVER', label: 'Servidor de impressão', placeholder: '10.108.64.20' },
+            { name: 'PROXY_HTTP', label: 'Proxy HTTP corporativo', placeholder: '10.108.88.4' },
+            { name: 'PROXY_PORTA', label: 'Porta do proxy', placeholder: '8080' },
+            { name: 'HOMEPAGE', label: 'Página inicial do portal', placeholder: 'www.comara.intraer' },
+            { name: 'PROXY_URL', label: 'URL completa do proxy', placeholder: 'http://proxy...' },
+            { name: 'GRUPO_ADMIN_AD', label: 'Grupo admin no AD para sudo', placeholder: 'Dominio\\ Admins' },
+            { name: 'GRUPO_ADMIN_LINUX', label: 'Grupo local para sudo', placeholder: 'linux-admins' },
+            { name: 'GRUPO_DASTI', label: 'Grupo DASTI para sudo', placeholder: '_DASTI' }
+        ];
+
+        async function loadOrgs() {
+            const res = await fetch('/api/organizations.php');
+            const orgs = await res.json();
+            const list = document.getElementById('org-list');
+            list.innerHTML = orgs.map(org => 
+                `<li><a href="#" onclick="selectOrg(${org.id}, '${org.name}')">${org.acronym}</a></li>`
+            ).join('');
+        }
+
+        async function selectOrg(id, name) {
+            currentOrgId = id;
+            document.getElementById('welcome-card').classList.add('hidden');
+            document.getElementById('org-details').classList.remove('hidden');
+            document.getElementById('selected-org-name').innerText = name;
+            document.getElementById('bundle-result').classList.add('hidden');
+            loadVariables(id);
+        }
+
+        async function loadVariables(orgId) {
+            const res = await fetch(`/api/variables.php?org_id=${orgId}`);
+            const vars = await res.json();
+            const container = document.getElementById('vars-container');
+            
+            const varMap = {};
+            vars.forEach(v => varMap[v.name] = v.value);
+
+            container.innerHTML = defaultVars.map(v => `
+                <label for="var-${v.name}">${v.label} (<code>{{${v.name}}}</code>)</label>
+                <input type="text" id="var-${v.name}" name="${v.name}" value="${varMap[v.name] || ''}" placeholder="${v.placeholder}">
+            `).join('');
+        }
+
+        document.getElementById('vars-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const entries = Array.from(formData.entries());
+            
+            for (const [name, value] of entries) {
+                await fetch('/api/variables.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        organization_id: currentOrgId,
+                        name: name,
+                        value: value,
+                        type: 'string'
+                    })
+                });
+            }
+            alert('Variáveis salvas com sucesso!');
+        };
+
+        async function generateBundle() {
+            const res = await fetch('/api/generate-bundle.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ organization_id: currentOrgId, scripts: [] })
+            });
+            const data = await res.json();
+            if (data.id) {
+                document.getElementById('bundle-result').classList.remove('hidden');
+                document.getElementById('download-link').href = data.download_url;
+            }
+        }
+
+        function showAddOrg() { document.getElementById('modal-org').showModal(); }
+
+        document.getElementById('form-org').onsubmit = async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+            await fetch('/api/organizations.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            document.getElementById('modal-org').close();
+            loadOrgs();
+        };
+
+        loadOrgs();
+    </script>
+</body>
+</html>
