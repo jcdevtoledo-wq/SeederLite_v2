@@ -1,0 +1,9 @@
+# Arquivos de configuração com credenciais
+lib/db.php
+
+# Bundles gerados
+storage/
+
+# Arquivos temporários
+*.tmp
+*.log

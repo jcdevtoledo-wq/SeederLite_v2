@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../lib/db.php';
 
+// Allow agent.py to download without auth, but validate ID
 $id = $_GET['id'] ?? null;
 
 if (!$id) {
