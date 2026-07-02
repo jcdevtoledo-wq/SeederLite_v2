@@ -1,9 +1,10 @@
 #!/bin/bash
+
 # =============================================================================
-# install.sh - Instalador Oficial do SeederLinux Lite
+# install.sh - Instalador Oficial do SeederLinux Lite (v4 - Debian Trixie)
 # =============================================================================
 # Uso: sudo ./install.sh 02/07/2026 11:55
-# =============================================================================
+# =======================================:======================================
 
 set -e
 
@@ -14,9 +15,6 @@ AZUL='\033[0;34m'
 VERMELHO='\033[0;31m'
 SEM_COR='\033[0m'
 
-# -----------------------------------------------------------------------------
-# Funções de logging e utilitários
-# -----------------------------------------------------------------------------
 log_info() { echo -e "${AZUL}➜${SEM_COR} $1"; }
 log_ok()   { echo -e "${VERDE}✓${SEM_COR} $1"; }
 log_warn() { echo -e "${AMARELO}⚠${SEM_COR} $1"; }
@@ -30,13 +28,11 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo -e "${AZUL}====================================================${SEM_COR}"
-echo -e "${AZUL}     SeederLinux Lite - Instalação Oficial (v3)     ${SEM_COR}"
+echo -e "${AZUL}     SeederLinux Lite - Instalação Oficial (v4)     ${SEM_COR}"
 echo -e "${AZUL}====================================================${SEM_COR}"
 echo ""
 
-# -----------------------------------------------------------------------------
 # Configurações
-# -----------------------------------------------------------------------------
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMP_DIR=$(mktemp -d)
 WEB_DIR="/var/www/html/seederlinux"
@@ -54,59 +50,46 @@ DOMAIN="seederlinux.local"
 CERT_DIR="/etc/apache2/ssl"
 
 # -----------------------------------------------------------------------------
-# 1. Função para organizar arquivos no diretório temporário
+# 1. Organizar arquivos
 # -----------------------------------------------------------------------------
 organize_project() {
     log_info "Organizando arquivos do projeto (cópia em $TEMP_DIR)..."
     rsync -a --exclude='install.sh' "$PROJECT_DIR/" "$TEMP_DIR/" >/dev/null 2>&1
 
-    # Remove arquivos indesejados
     find "$TEMP_DIR" -type f \( -name "*.zip" -o -name "*.txt" -o -name "*.orig" \
         -o -name ".gitattributes" -o -name "install_orig.sh" \
         -o -name "instalar_seederlinux.sh" \) -delete
 
-    # Cria diretórios necessários
     mkdir -p "$TEMP_DIR"/{api,painel,lib,scripts,database,assets/{img,css,js,fonts},storage/{cache,uploads,logs,bundles},config,tmp,docs}
 
-    # Move arquivos por tipo
     move_files() {
         local src_pattern="$1"
         local dest_dir="$2"
         find "$TEMP_DIR" -maxdepth 1 -type f -name "$src_pattern" -exec mv -t "$dest_dir" {} + 2>/dev/null || true
     }
 
-    # PHP da API
     for file in bundle.php generate-bundle.php login.php organizations.php variables.php; do
         [ -f "$TEMP_DIR/$file" ] && mv "$TEMP_DIR/$file" "$TEMP_DIR/api/"
     done
 
-    # Painel (HTML)
     [ -f "$TEMP_DIR/index.html" ] && mv "$TEMP_DIR/index.html" "$TEMP_DIR/painel/"
     [ -f "$TEMP_DIR/login.html" ] && mv "$TEMP_DIR/login.html" "$TEMP_DIR/painel/"
-
-    # Lib
     [ -f "$TEMP_DIR/db.php" ] && mv "$TEMP_DIR/db.php" "$TEMP_DIR/lib/"
 
-    # Scripts core
     mkdir -p "$TEMP_DIR/scripts"
     find "$TEMP_DIR" -maxdepth 1 -type f -name "core_*.sh" -exec mv -t "$TEMP_DIR/scripts" {} + 2>/dev/null || true
 
-    # Banco de dados
     [ -f "$TEMP_DIR/schema.sql" ] && mv "$TEMP_DIR/schema.sql" "$TEMP_DIR/database/"
 
-    # Imagens
     move_files "*.ico" "$TEMP_DIR/assets/img/"
     move_files "*.png" "$TEMP_DIR/assets/img/"
     move_files "*.jpg" "$TEMP_DIR/assets/img/"
     move_files "*.svg" "$TEMP_DIR/assets/img/"
-
-    # CSS, JS, Fontes
     move_files "*.css" "$TEMP_DIR/assets/css/"
     move_files "*.js"  "$TEMP_DIR/assets/js/"
     move_files "*.woff*" "$TEMP_DIR/assets/fonts/"
     move_files "*.ttf" "$TEMP_DIR/assets/fonts/"
 
-    # Documentação
     find "$TEMP_DIR" -maxdepth 1 -type f \( -name "*.md" -o -name "*.pdf" -o -name "*.docx" \) -exec mv -t "$TEMP_DIR/docs" {} + 2>/dev/null || true
 
     find "$TEMP_DIR" -type d -empty -delete 2>/dev/null || true
@@ -174,12 +157,7 @@ install_dependencies() {
                 php_pkgs="libapache2-mod-php8.1 php8.1 php8.1-cli php8.1-common php8.1-pgsql php8.1-curl php8.1-mbstring php8.1-xml php8.1-json"
                 ;;
             debian)
-                php_pkgs="php libapache2-mod-php"
-                for ext in pgsql curl mbstring xml json; do
-                    if apt-cache show "php-${ext}" &>/dev/null; then
-                        php_pkgs="$php_pkgs php-${ext}"
-                    fi
-                done
+                php_pkgs="php libapache2-mod-php php-pgsql php-curl php-mbstring php-xml php-json"
                 ;;
             *)
                 log_error "Distribuição não suportada: $ID"
@@ -196,36 +174,56 @@ install_dependencies() {
 }
 
 # -----------------------------------------------------------------------------
-# 5. Configurar PostgreSQL (CORRIGIDO)
+# 5. Configurar PostgreSQL (CORRIGIDO - detecta pg_hba.conf)
 # -----------------------------------------------------------------------------
 configure_postgresql() {
     log_info "Configurando PostgreSQL..."
 
-    # Iniciar o serviço
     systemctl start postgresql || service postgresql start || log_error "Não foi possível iniciar o PostgreSQL."
     systemctl enable postgresql >/dev/null 2>&1 || update-rc.d postgresql enable
-
-    # Aguardar o PostgreSQL ficar disponível
     sleep 3
 
-    # Ajustar o arquivo pg_hba.conf para autenticação MD5 (ANTES de criar usuário/banco)
-    local pg_hba=$(su - postgres -c "psql -tAc 'SHOW hba_file;'" 2>/dev/null | tr -d ' ')
-    if [ -n "$pg_hba" ] && [ -f "$pg_hba" ]; then
-        log_info "   Ajustando autenticação para MD5 em $pg_hba"
-        cp "$pg_hba" "${pg_hba}.bak.$(date +%s)"
-        # Converte peer e scram-sha-256 para md5 (para todas as conexões locais e de rede)
-        sed -i 's/^local\s\+all\s\+all\s\+peer/local   all             all                                     md5/' "$pg_hba"
-        sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+scram-sha-256/host    all             all             127.0.0.1\/32            md5/' "$pg_hba"
-        sed -i 's/^host\s\+all\s\+all\s\+::1\/128\s\+scram-sha-256/host    all             all             ::1\/128                 md5/' "$pg_hba"
-        # Também garante que conexões via socket usem md5 (para testes com -h localhost)
+    # Detectar pg_hba.conf
+    log_info "   Localizando pg_hba.conf..."
+    
+    # Tenta via SQL
+    PG_HBA=$(su - postgres -c "psql -tAc 'SHOW hba_file;'" 2>/dev/null | tr -d ' ')
+    
+    # Se falhou, busca no sistema
+    if [ -z "$PG_HBA" ] || [ ! -f "$PG_HBA" ]; then
+        log_warn "   SHOW hba_file falhou. Buscando manualmente..."
+        
+        # Locais comuns
+        for path in /etc/postgresql/*/main/pg_hba.conf \
+                    /etc/postgresql/*/*/pg_hba.conf \
+                    /var/lib/postgresql/*/data/pg_hba.conf \
+                    /var/lib/postgres/*/data/pg_hba.conf; do
+            if [ -f "$path" ]; then
+                PG_HBA="$path"
+                break
+            fi
+        done
+    fi
+    
+    # Última tentativa via find
+    if [ -z "$PG_HBA" ] || [ ! -f "$PG_HBA" ]; then
+        PG_HBA=$(find /etc/postgresql -name "pg_hba.conf" 2>/dev/null | head -1)
+    fi
+    
+    if [ -n "$PG_HBA" ] && [ -f "$PG_HBA" ]; then
+        log_ok "   pg_hba.conf encontrado em: $PG_HBA"
+        cp "$PG_HBA" "${PG_HBA}.bak.$(date +%s)"
+        sed -i 's/^local\s\+all\s\+all\s\+peer/local   all             all                                     md5/' "$PG_HBA"
+        sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+scram-sha-256/host    all             all             127.0.0.1\/32            md5/' "$PG_HBA"
+        sed -i 's/^host\s\+all\s\+all\s\+::1\/128\s\+scram-sha-256/host    all             all             ::1\/128                 md5/' "$PG_HBA"
         systemctl restart postgresql || service postgresql restart
         sleep 3
         log_ok "   Autenticação configurada para MD5"
     else
-        log_warn "   pg_hba.conf não encontrado. Continuando sem ajustes."
+        log_warn "   pg_hba.conf não encontrado. Continuando (pode ser necessário configurar manualmente)."
     fi
 
-    # Criar usuário e banco (usando su - postgres, sem senha)
+    # Criar usuário e banco
     log_info "   Criando usuário e banco de dados..."
     if ! su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" 2>/dev/null | grep -q 1; then
         su - postgres -c "psql -c \"CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASS';\""
@@ -242,12 +240,10 @@ configure_postgresql() {
         log_ok "   Banco $DB_NAME já existe"
     fi
 
-    # Conceder privilégios
     su - postgres -c "psql -c \"GRANT ALL PRIVILEGES ON DATABASE $DB_NAME TO $DB_USER;\""
     su - postgres -c "psql -d $DB_NAME -c \"GRANT ALL ON SCHEMA public TO $DB_USER;\""
     su - postgres -c "psql -d $DB_NAME -c \"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;\""
 
-    # Testar conexão com o novo usuário (via TCP/IP com senha)
     log_info "   Testando conexão com o banco..."
     if PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1" >/dev/null 2>&1; then
         log_ok "   Conexão bem-sucedida"
@@ -266,7 +262,6 @@ setup_database() {
         log_ok "Schema aplicado"
     fi
 
-    # Tabela users
     PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" <<SQLEOF 2>/dev/null
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -280,7 +275,6 @@ CREATE TABLE IF NOT EXISTS users (
 SQLEOF
     log_ok "Tabela users verificada/criada"
 
-    # Importar scripts core
     log_info "Importando scripts core..."
     for script in "$TEMP_DIR/scripts"/*.sh; do
         if [ -f "$script" ]; then
@@ -296,7 +290,6 @@ SQLEOF
         fi
     done
 
-    # Criar admin
     local hash=$(php -r "echo password_hash('$ADMIN_PASS', PASSWORD_BCRYPT);")
     PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" <<SQLEOF 2>/dev/null
 INSERT INTO users (name, email, password_hash, role, active, created_at)
@@ -436,16 +429,16 @@ final_verification() {
 }
 
 # -----------------------------------------------------------------------------
-# 10. Rollback (em caso de erro)
+# 10. Rollback
 # -----------------------------------------------------------------------------
 rollback() {
     log_error "Falha na instalação. Executando rollback..."
     if [ -d "$BACKUP_DIR" ]; then
         rm -rf "$WEB_DIR"
         mv "$BACKUP_DIR" "$WEB_DIR"
-        log_ok "Rollback concluído: estado anterior restaurado."
+        log_ok "Rollback concluído."
     else
-        log_warn "Nenhum backup encontrado para rollback."
+        log_warn "Nenhum backup encontrado."
     fi
     exit 1
 }
@@ -460,37 +453,30 @@ validate_required_files
 report_organization
 
 install_dependencies
-configure_postgresql   # <-- Agora ajusta pg_hba antes de criar usuário
+configure_postgresql
 setup_database
 install_web_files
 configure_apache
 final_verification
 
-# -----------------------------------------------------------------------------
-# Resumo final
-# -----------------------------------------------------------------------------
+# Resumo
 IP=$(hostname -I | awk '{print $1}')
 echo ""
 echo -e "${VERDE}====================================================${SEM_COR}"
 echo -e "${VERDE}       Instalação Concluída com Sucesso!            ${SEM_COR}"
 echo -e "${VERDE}====================================================${SEM_COR}"
 echo ""
-echo -e "🌐 URL do sistema:  ${AZUL}https://$DOMAIN/${SEM_COR}  (ou https://$IP/)"
-echo -e "🔐 Painel admin:    ${AZUL}https://$DOMAIN/painel/${SEM_COR}"
-echo -e "🔌 API:             ${AZUL}https://$DOMAIN/api/${SEM_COR}"
-echo -e "🗄️  Banco:          ${AZUL}$DB_NAME (usuário: $DB_USER / senha: $DB_PASS)${SEM_COR}"
-echo -e "👨‍💼 Administrador:   ${AZUL}$ADMIN_EMAIL / $ADMIN_PASS${SEM_COR}"
+echo -e "🌐 URL:           ${AZUL}https://$DOMAIN/${SEM_COR}  (ou https://$IP/)"
+echo -e "🔐 Painel:        ${AZUL}https://$DOMAIN/painel/${SEM_COR}"
+echo -e "🔌 API:           ${AZUL}https://$DOMAIN/api/${SEM_COR}"
+echo -e "🗄️  Banco:        ${AZUL}$DB_NAME ($DB_USER / $DB_PASS)${SEM_COR}"
+echo -e "👨‍💼 Admin:        ${AZUL}$ADMIN_EMAIL / $ADMIN_PASS${SEM_COR}"
 echo ""
-echo -e "${AMARELO}⚠️  ATENÇÃO:${SEM_COR} O certificado SSL é autoassinado."
-echo "   Seu navegador mostrará um aviso de segurança."
-echo "   Clique em 'Avançado' e 'Prosseguir' para acessar."
-echo ""
-echo -e "${AMARELO}💡 Dica:${SEM_COR} Para usar o domínio $DOMAIN, adicione ao /etc/hosts:"
-echo "   echo '$IP $DOMAIN' | sudo tee -a /etc/hosts"
-echo ""
-echo -e "${AMARELO}🔑 Importante:${SEM_COR} Altere as senhas padrão em produção!"
-echo -e "📁 Arquivos em:     $WEB_DIR"
-echo -e "📝 Log de instalação: $LOG_FILE"
+echo -e "${AMARELO}⚠️  Certificado autoassinado - aceite o aviso no navegador.${SEM_COR}"
+echo -e "${AMARELO}💡 Adicione ao /etc/hosts: echo '$IP $DOMAIN' | sudo tee -a /etc/hosts${SEM_COR}"
+echo -e "${AMARELO}🔑 Altere as senhas padrão em produção!${SEM_COR}"
+echo -e "📁 Arquivos: $WEB_DIR"
+echo -e "📝 Log: $LOG_FILE"
 echo ""
 
 rm -rf "$TEMP_DIR"
