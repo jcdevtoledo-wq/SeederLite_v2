@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS scripts (
     id SERIAL PRIMARY KEY,
     organization_id INT REFERENCES organizations(id) ON DELETE CASCADE,
     name VARCHAR(200) NOT NULL,
-    filename VARCHAR(255), -- Para scripts customizados
+    filename VARCHAR(255),
     content TEXT NOT NULL,
     version INT DEFAULT 1,
     is_core BOOLEAN DEFAULT FALSE,
@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS system_settings (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS machine_inventory (
+    id SERIAL PRIMARY KEY,
+    organization_id INT REFERENCES organizations(id) ON DELETE SET NULL,
+    hostname VARCHAR(255) UNIQUE NOT NULL,
+    ip_address VARCHAR(45),
+    cpu_info TEXT,
+    ram_gb INT,
+    disk_gb INT,
+    last_checkin TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    agent_version VARCHAR(20)
+);
+
 -- Inserir usuário admin padrão (senha: admin123)
 -- Hash gerado via password_hash('admin123', PASSWORD_BCRYPT)
 INSERT INTO users (username, password_hash) 
@@ -80,5 +92,7 @@ INSERT INTO system_settings (setting_key, setting_value, description) VALUES
 ('agent_download_path', '/agent.py', 'Caminho para download do agente Python'),
 ('docs_download_path', '/DOCUMENTACAO.md', 'Caminho para download da documentação'),
 ('system_name', 'SeederLinux Lite', 'Nome do sistema'),
-('system_version', '2.0', 'Versão do sistema')
+('system_version', '2.0', 'Versão do sistema'),
+('agent_latest_version', '1.0', 'Versão mais recente do agente Python'),
+('agent_min_version', '1.0', 'Versão mínima do agente Python aceita')
 ON CONFLICT (setting_key) DO NOTHING;

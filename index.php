@@ -53,6 +53,12 @@ if (strpos($path,
  ||
     $api_endpoint === 
 'health.php'
+ ||
+    $api_endpoint === 
+'agent_checkin.php'
+ ||
+    $api_endpoint === 
+'machine_inventory.php'
 ) {
         if (file_exists($file)) {
             require_once $file;

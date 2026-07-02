@@ -1,8 +1,16 @@
 <?php
 // painel/index.php
 if (session_status() === PHP_SESSION_NONE) session_start();
-$csrf_token = $_SESSION['csrf_token'] ?? '';
-$username = $_SESSION['username'] ?? 'Admin';
+$csrf_token = $_SESSION[
+'csrf_token'
+] ?? 
+''
+;
+$username = $_SESSION[
+'username'
+] ?? 
+'Admin'
+;
 ?>
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -19,7 +27,7 @@ $username = $_SESSION['username'] ?? 'Admin';
         <div class="px-5 py-4 border-b border-gray-100">
             <div class="flex items-center gap-3">
                 <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M12 5l7 7-7 7"/>
                     </svg>
                 </div>
@@ -40,6 +48,12 @@ $username = $_SESSION['username'] ?? 'Admin';
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
                 </svg>
                 Organizações
+            </button>
+            <button onclick="showSection('machine-inventory')" class="nav-item w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10h2m-2 0a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2m3 4H9"/>
+                </svg>
+                Inventário de Máquinas
             </button>
             <button onclick="showSection('logs')" class="nav-item w-full text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -144,6 +158,30 @@ $username = $_SESSION['username'] ?? 'Admin';
             </div>
         </section>
 
+        <!-- Machine Inventory Section -->
+        <section id="section-machine-inventory" class="p-6 hidden">
+            <h2 class="text-lg font-semibold text-gray-900 mb-5">Inventário de Máquinas</h2>
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50 border-b border-gray-100">
+                        <tr>
+                            <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Hostname</th>
+                            <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">IP</th>
+                            <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">OM</th>
+                            <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">CPU</th>
+                            <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">RAM (GB)</th>
+                            <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Disco (GB)</th>
+                            <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Agente v.</th>
+                            <th class="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase">Último Check-in</th>
+                        </tr>
+                    </thead>
+                    <tbody id="machine-inventory-table-body" class="divide-y divide-gray-50">
+                        <tr><td colspan="8" class="px-5 py-8 text-center text-gray-400">Carregando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
         <!-- Logs Section -->
         <section id="section-logs" class="p-6 hidden">
             <h2 class="text-lg font-semibold text-gray-900 mb-5">Logs de Atividade</h2>
@@ -233,6 +271,7 @@ $username = $_SESSION['username'] ?? 'Admin';
             const titles = {
                 dashboard: ['Dashboard', 'Visão geral do sistema'],
                 organizations: ['Organizações (OMs)', 'Gerenciar organizações militares'],
+                machine_inventory: ['Inventário de Máquinas', 'Visualizar máquinas provisionadas'],
                 logs: ['Logs de Atividade', 'Histórico de ações do sistema'],
                 settings: ['Configurações', 'Parâmetros do sistema']
             };
@@ -241,6 +280,7 @@ $username = $_SESSION['username'] ?? 'Admin';
 
             if (name === 'dashboard') loadDashboard();
             else if (name === 'organizations') loadOrganizations();
+            else if (name === 'machine-inventory') loadMachineInventory();
             else if (name === 'logs') loadLogs();
             else if (name === 'settings') loadSettings();
         }
@@ -287,6 +327,27 @@ $username = $_SESSION['username'] ?? 'Admin';
                     <td class="px-5 py-3 text-right">
                         <button onclick="alert('Funcionalidade de edição em desenvolvimento')" class="text-blue-600 hover:text-blue-800 text-xs font-medium hover:underline">Gerenciar</button>
                     </td>
+                </tr>
+            `).join('');
+        }
+
+        async function loadMachineInventory() {
+            const inventory = await apiFetch('/api/machine_inventory.php');
+            const tbody = document.getElementById('machine-inventory-table-body');
+            if (inventory.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="8" class="px-5 py-8 text-center text-gray-400">Nenhuma máquina registrada.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = inventory.map(m => `
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-5 py-3 font-medium text-gray-900">${escHtml(m.hostname)}</td>
+                    <td class="px-5 py-3 text-gray-500 text-sm">${escHtml(m.ip_address)}</td>
+                    <td class="px-5 py-3"><span class="bg-blue-50 text-blue-700 text-xs font-mono font-semibold px-2 py-1 rounded">${escHtml(m.organization_acronym || 'N/A')}</span></td>
+                    <td class="px-5 py-3 text-gray-500 text-sm">${escHtml(m.cpu_info)}</td>
+                    <td class="px-5 py-3 text-gray-500 text-sm">${m.ram_gb}</td>
+                    <td class="px-5 py-3 text-gray-500 text-sm">${m.disk_gb}</td>
+                    <td class="px-5 py-3 text-gray-500 text-sm">${escHtml(m.agent_version)}</td>
+                    <td class="px-5 py-3 text-xs text-gray-500">${new Date(m.last_checkin).toLocaleString('pt-BR')}</td>
                 </tr>
             `).join('');
         }
