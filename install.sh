@@ -1,10 +1,9 @@
 #!/bin/bash
-
 # =============================================================================
-# install.sh - Instalador Oficial do SeederLinux Lite (v4 - Debian Trixie)
+# install.sh - Instalador Oficial do SeederLinux Lite (v5 - PostgreSQL fix)
 # =============================================================================
-# Uso: sudo ./install.sh 02/07/2026 11:55
-# =======================================:======================================
+# Uso: sudo ./install.sh  02/07/2026    13:12
+# =============================================================================
 
 set -e
 
@@ -28,7 +27,7 @@ if [ "$EUID" -ne 0 ]; then
 fi
 
 echo -e "${AZUL}====================================================${SEM_COR}"
-echo -e "${AZUL}     SeederLinux Lite - Instalação Oficial (v4)     ${SEM_COR}"
+echo -e "${AZUL}     SeederLinux Lite - Instalação Oficial (v5)     ${SEM_COR}"
 echo -e "${AZUL}====================================================${SEM_COR}"
 echo ""
 
@@ -174,7 +173,7 @@ install_dependencies() {
 }
 
 # -----------------------------------------------------------------------------
-# 5. Configurar PostgreSQL (CORRIGIDO - detecta pg_hba.conf)
+# 5. Configurar PostgreSQL (ORDEM CORRIGIDA)
 # -----------------------------------------------------------------------------
 configure_postgresql() {
     log_info "Configurando PostgreSQL..."
@@ -183,48 +182,9 @@ configure_postgresql() {
     systemctl enable postgresql >/dev/null 2>&1 || update-rc.d postgresql enable
     sleep 3
 
-    # Detectar pg_hba.conf
-    log_info "   Localizando pg_hba.conf..."
+    # PASSO 1: Criar usuário e banco (ANTES de alterar pg_hba.conf)
+    log_info "   Criando usuário e banco de dados (via peer auth)..."
     
-    # Tenta via SQL
-    PG_HBA=$(su - postgres -c "psql -tAc 'SHOW hba_file;'" 2>/dev/null | tr -d ' ')
-    
-    # Se falhou, busca no sistema
-    if [ -z "$PG_HBA" ] || [ ! -f "$PG_HBA" ]; then
-        log_warn "   SHOW hba_file falhou. Buscando manualmente..."
-        
-        # Locais comuns
-        for path in /etc/postgresql/*/main/pg_hba.conf \
-                    /etc/postgresql/*/*/pg_hba.conf \
-                    /var/lib/postgresql/*/data/pg_hba.conf \
-                    /var/lib/postgres/*/data/pg_hba.conf; do
-            if [ -f "$path" ]; then
-                PG_HBA="$path"
-                break
-            fi
-        done
-    fi
-    
-    # Última tentativa via find
-    if [ -z "$PG_HBA" ] || [ ! -f "$PG_HBA" ]; then
-        PG_HBA=$(find /etc/postgresql -name "pg_hba.conf" 2>/dev/null | head -1)
-    fi
-    
-    if [ -n "$PG_HBA" ] && [ -f "$PG_HBA" ]; then
-        log_ok "   pg_hba.conf encontrado em: $PG_HBA"
-        cp "$PG_HBA" "${PG_HBA}.bak.$(date +%s)"
-        sed -i 's/^local\s\+all\s\+all\s\+peer/local   all             all                                     md5/' "$PG_HBA"
-        sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+scram-sha-256/host    all             all             127.0.0.1\/32            md5/' "$PG_HBA"
-        sed -i 's/^host\s\+all\s\+all\s\+::1\/128\s\+scram-sha-256/host    all             all             ::1\/128                 md5/' "$PG_HBA"
-        systemctl restart postgresql || service postgresql restart
-        sleep 3
-        log_ok "   Autenticação configurada para MD5"
-    else
-        log_warn "   pg_hba.conf não encontrado. Continuando (pode ser necessário configurar manualmente)."
-    fi
-
-    # Criar usuário e banco
-    log_info "   Criando usuário e banco de dados..."
     if ! su - postgres -c "psql -tAc \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" 2>/dev/null | grep -q 1; then
         su - postgres -c "psql -c \"CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASS';\""
         log_ok "   Usuário $DB_USER criado"
@@ -244,11 +204,58 @@ configure_postgresql() {
     su - postgres -c "psql -d $DB_NAME -c \"GRANT ALL ON SCHEMA public TO $DB_USER;\""
     su - postgres -c "psql -d $DB_NAME -c \"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;\""
 
-    log_info "   Testando conexão com o banco..."
-    if PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1" >/dev/null 2>&1; then
-        log_ok "   Conexão bem-sucedida"
+    # PASSO 2: Testar conexão via peer
+    log_info "   Testando conexão (via peer auth)..."
+    if su - postgres -c "psql -d $DB_NAME -c 'SELECT 1'" >/dev/null 2>&1; then
+        log_ok "   Conexão peer funcionando"
+    fi
+
+    # PASSO 3: Localizar e ajustar pg_hba.conf
+    log_info "   Localizando pg_hba.conf..."
+    
+    PG_HBA=$(su - postgres -c "psql -tAc 'SHOW hba_file;'" 2>/dev/null | tr -d ' ')
+    
+    if [ -z "$PG_HBA" ] || [ ! -f "$PG_HBA" ]; then
+        log_warn "   SHOW hba_file falhou. Buscando manualmente..."
+        for path in /etc/postgresql/*/main/pg_hba.conf \
+                    /etc/postgresql/*/*/pg_hba.conf \
+                    /var/lib/postgresql/*/data/pg_hba.conf \
+                    /var/lib/postgres/*/data/pg_hba.conf; do
+            if [ -f "$path" ]; then
+                PG_HBA="$path"
+                break
+            fi
+        done
+    fi
+    
+    if [ -z "$PG_HBA" ] || [ ! -f "$PG_HBA" ]; then
+        PG_HBA=$(find /etc/postgresql -name "pg_hba.conf" 2>/dev/null | head -1)
+    fi
+    
+    if [ -n "$PG_HBA" ] && [ -f "$PG_HBA" ]; then
+        log_ok "   pg_hba.conf encontrado em: $PG_HBA"
+        
+        cp "$PG_HBA" "${PG_HBA}.bak.$(date +%s)"
+        
+        # Mantém peer para postgres, md5 para os demais
+        sed -i 's/^local\s\+all\s\+postgres\s\+peer/local   all             postgres                                peer/' "$PG_HBA"
+        sed -i 's/^local\s\+all\s\+all\s\+peer/local   all             all                                     md5/' "$PG_HBA"
+        sed -i 's/^host\s\+all\s\+all\s\+127\.0\.0\.1\/32\s\+scram-sha-256/host    all             all             127.0.0.1\/32            md5/' "$PG_HBA"
+        sed -i 's/^host\s\+all\s\+all\s\+::1\/128\s\+scram-sha-256/host    all             all             ::1\/128                 md5/' "$PG_HBA"
+        
+        systemctl restart postgresql || service postgresql restart
+        sleep 3
+        log_ok "   Autenticação configurada para MD5 (postgres mantém peer)"
+        
+        # PASSO 4: Testar com o novo usuário
+        log_info "   Testando conexão com o usuário $DB_USER (via TCP + senha)..."
+        if PGPASSWORD="$DB_PASS" psql -h localhost -U "$DB_USER" -d "$DB_NAME" -c "SELECT 1" >/dev/null 2>&1; then
+            log_ok "   Conexão com $DB_USER bem-sucedida"
+        else
+            log_error "Falha na conexão com o banco usando o usuário $DB_USER."
+        fi
     else
-        log_error "Falha na conexão com o banco usando o usuário $DB_USER. Verifique as credenciais."
+        log_warn "   pg_hba.conf não encontrado. Continuando sem ajustes."
     fi
 }
 
