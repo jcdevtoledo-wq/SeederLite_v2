@@ -1,0 +1,153 @@
+<!-- 
+    Componente de Formulário de Variáveis — SeederLinux Lite
+    Este código é a parte reativa do dashboard que gerencia placeholders dinamicamente.
+-->
+
+<!-- Container Principal (Inserir no Dashboard) -->
+<div id="section-variables" class="p-4 sm:p-6 fade-in">
+    <div class="mb-6">
+        <h2 class="text-2xl font-bold text-gray-900">Editar Variáveis</h2>
+        <p class="text-sm text-gray-500 mt-1">Configure placeholders para cada organização militar de forma independente.</p>
+    </div>
+
+    <!-- Seletor de OM com Design Moderno -->
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+        <label class="block text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+            </svg>
+            Selecione a Organização Militar
+        </label>
+        <select id="var-org-select" class="w-full border border-gray-300 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 hover:bg-white transition-all">
+            <option value="">Carregando organizações...</option>
+        </select>
+    </div>
+
+    <!-- Área Dinâmica do Formulário -->
+    <div id="variables-form-container" class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 min-h-[200px] flex flex-col items-center justify-center text-center">
+        <div class="text-gray-400">
+            <svg class="w-16 h-16 mx-auto mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v10a2 2 0 002 2h5M16 6h5a2 2 0 012 2v10a2 2 0 01-2 2h-5m-4-6h8m-8-4h8"/>
+            </svg>
+            <p class="text-lg font-medium">Selecione uma OM para começar</p>
+            <p class="text-sm">Os campos de variáveis aparecerão aqui automaticamente.</p>
+        </div>
+    </div>
+</div>
+
+<!-- Lógica JavaScript (Componente) -->
+<script>
+/**
+ * Carrega as variáveis de uma OM específica e renderiza o formulário dinâmico
+ */
+async function loadVariablesForOrg() {
+    const orgId = document.getElementById('var-org-select').value;
+    const container = document.getElementById('variables-form-container');
+    
+    if (!orgId) {
+        container.innerHTML = `
+            <div class="text-gray-400 py-12 flex flex-col items-center">
+                <svg class="w-12 h-12 mb-4 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H5a2 2 0 00-2 2v10a2 2 0 002 2h5M16 6h5a2 2 0 012 2v10a2 2 0 01-2 2h-5m-4-6h8m-8-4h8"/></svg>
+                <p>Selecione uma OM para editar suas variáveis</p>
+            </div>`;
+        return;
+    }
+
+    // Efeito de Loading
+    container.innerHTML = `
+        <div class="flex flex-col items-center py-12">
+            <div class="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p class="text-sm text-gray-500">Buscando variáveis no banco de dados...</p>
+        </div>`;
+
+    try {
+        const variables = await apiFetch(`/api/variables.php?organization_id=${orgId}`);
+        
+        if (variables.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-12">
+                    <p class="text-orange-600 font-medium">Nenhuma variável configurada para esta OM.</p>
+                    <p class="text-sm text-gray-500 mt-1">Verifique as configurações globais ou o schema.sql.</p>
+                </div>`;
+            return;
+        }
+
+        // Renderização do Formulário Dinâmico
+        container.innerHTML = `
+            <form id="variables-edit-form" class="space-y-6 animate-fade-in">
+                <div class="grid md:grid-cols-2 gap-6">
+                    ${variables.map(v => `
+                        <div class="group">
+                            <label class="block text-sm font-bold text-gray-700 mb-1.5 group-focus-within:text-blue-600 transition-colors">
+                                ${escHtml(v.variable_key)}
+                            </label>
+                            <input type="text" 
+                                   name="${escHtml(v.variable_key)}" 
+                                   value="${escHtml(v.variable_value || '')}" 
+                                   class="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all bg-gray-50 hover:bg-white"
+                                   placeholder="Valor para ${escHtml(v.variable_key)}">
+                            ${v.description ? `<p class="text-xs text-gray-400 mt-1.5 italic">${escHtml(v.description)}</p>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+                
+                <div class="flex items-center justify-end gap-3 pt-6 border-t border-gray-100">
+                    <button type="button" onclick="showSection('variables')" class="px-6 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-colors">
+                        Descartar
+                    </button>
+                    <button type="submit" id="btn-save-vars" class="bg-blue-600 text-white font-bold px-8 py-2.5 rounded-lg hover:bg-blue-700 shadow-md hover:shadow-lg transition-all flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                        Salvar Variáveis
+                    </button>
+                </div>
+            </form>
+        `;
+
+        document.getElementById('variables-edit-form').addEventListener('submit', saveVariables);
+    } catch (e) {
+        container.innerHTML = `<p class="text-red-600 text-center py-12">Erro ao carregar variáveis.</p>`;
+    }
+}
+
+/**
+ * Salva as variáveis via API com feedback visual
+ */
+async function saveVariables(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btn-save-vars');
+    const orgId = document.getElementById('var-org-select').value;
+    const formData = new FormData(e.target);
+    
+    // Feedback: Loading
+    const originalBtnContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = `<div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div><span>Salvando...</span>`;
+
+    try {
+        let successCount = 0;
+        const entries = Array.from(formData.entries());
+        
+        for (const [key, value] of entries) {
+            const res = await apiFetch('/api/variables.php', 'POST', { 
+                csrf_token: CSRF_TOKEN, 
+                organization_id: orgId, 
+                variable_key: key, 
+                variable_value: value 
+            });
+            if (!res.error) successCount++;
+        }
+
+        if (successCount === entries.length) {
+            showToast('Todas as variáveis foram salvas com sucesso!', 'success');
+        } else {
+            showToast(`Atenção: ${entries.length - successCount} variáveis falharam ao salvar.`, 'warning');
+        }
+    } catch (err) {
+        showToast('Erro crítico ao salvar variáveis.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalBtnContent;
+        loadVariablesForOrg(); // Recarrega para garantir sincronia
+    }
+}
+</script>
