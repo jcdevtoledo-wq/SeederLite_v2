@@ -36,9 +36,7 @@ verifyCSRFToken($input[
 $org_id = validateInput($input[
 'organization_id'
 ] ?? null, 'int', 'Organization ID');
-$selected_script_ids = $input[
-'selected_script_ids'
-] ?? []; // Array de IDs de scripts customizados
+$selected_script_ids = $input['selected_script_ids'] ?? $input['scripts'] ?? []; // Array de IDs de scripts customizados
 
 if (!$org_id) {
     logActivity('Generate Bundle Failed', 'Organization ID required');
